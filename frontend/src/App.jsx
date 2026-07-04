@@ -1,20 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { getAnonymousSession }  from "./auth/AnonymousSession";
 import { getUnreadCount }       from "./lib/notifications";
-import OnboardingScreen         from "./screens/OnboardingScreen";
-import JournalScreen            from "./screens/JournalScreen";
-import MoodScreen               from "./screens/MoodScreen";
-import InsightsScreen           from "./screens/InsightsScreen";
-import StoryScreen              from "./screens/StoryScreen";
-import MemoryScreen             from "./screens/MemoryScreen";
-import RitualsScreen            from "./screens/RitualsScreen";
-import ComfortScreen            from "./screens/ComfortScreen";
-import NotificationsScreen      from "./screens/NotificationsScreen";
-import SettingsScreen           from "./screens/SettingsScreen";
-import Sidebar                  from "./components/Sidebar";
-import ChatArea                 from "./components/ChatArea";
+import ErrorBoundary            from "./components/ErrorBoundary";
 
-// ── Apply theme tokens to :root immediately (called on boot + settings save)
+// ── Eagerly loaded (critical path — always needed immediately) ──
+import OnboardingScreen from "./screens/OnboardingScreen";
+import ChatArea         from "./components/ChatArea";
+import Sidebar          from "./components/Sidebar";
+
+// ── Lazily loaded (non-critical — only fetched when navigated to) ──
+const JournalScreen       = lazy(() => import("./screens/JournalScreen"));
+const MoodScreen          = lazy(() => import("./screens/MoodScreen"));
+const InsightsScreen      = lazy(() => import("./screens/InsightsScreen"));
+const StoryScreen         = lazy(() => import("./screens/StoryScreen"));
+const MemoryScreen        = lazy(() => import("./screens/MemoryScreen"));
+const RitualsScreen       = lazy(() => import("./screens/RitualsScreen"));
+const ComfortScreen       = lazy(() => import("./screens/ComfortScreen"));
+const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen"));
+const SettingsScreen      = lazy(() => import("./screens/SettingsScreen"));
+
+// ── Apply theme tokens to :root (called on boot + settings save) ──
 export function applyTheme(t) {
   const r = document.documentElement;
   if (t === "forest") {
@@ -42,6 +47,15 @@ export function applyTheme(t) {
   }
 }
 
+// ── Suspense fallback — uses existing skeleton CSS, no new classes ──
+function ScreenFallback() {
+  return (
+    <div className="screen-suspense-fallback" aria-label="Loading" role="status">
+      <span className="screen__loading-spinner" aria-hidden="true" />
+    </div>
+  );
+}
+
 function renderPage(page, session, onSessionUpdate) {
   switch (page) {
     case "chat":          return <ChatArea session={session} />;
@@ -59,10 +73,10 @@ function renderPage(page, session, onSessionUpdate) {
 }
 
 export default function App() {
-  const [session, setSession]       = useState(null);
-  const [ready, setReady]           = useState(false);
-  const [activePage, setPage]       = useState("chat");
-  const [unreadCount, setUnread]    = useState(0);
+  const [session,     setSession] = useState(null);
+  const [ready,       setReady]   = useState(false);
+  const [activePage,  setPage]    = useState("chat");
+  const [unreadCount, setUnread]  = useState(0);
 
   useEffect(() => {
     const existing = getAnonymousSession();
@@ -70,29 +84,39 @@ export default function App() {
     let savedTheme = "dark";
     try { savedTheme = localStorage.getItem("sable_theme") || "dark"; } catch {}
     applyTheme(savedTheme);
-    // Compute unread badge count once on boot (read-only)
     try { setUnread(getUnreadCount()); } catch {}
     setReady(true);
   }, []);
 
   if (!ready) return null;
-  if (!session) return <OnboardingScreen onComplete={(s) => setSession(s)} />;
+  if (!session) {
+    return (
+      <ErrorBoundary>
+        <OnboardingScreen onComplete={(s) => setSession(s)} />
+      </ErrorBoundary>
+    );
+  }
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        activePage={activePage}
-        onNavigate={(page) => {
-          setPage(page);
-          // Clear badge when user navigates to notifications
-          if (page === "notifications") setUnread(0);
-        }}
-        session={session}
-        unreadCount={unreadCount}
-      />
-      <div className="app-content">
-        {renderPage(activePage, session, setSession)}
+    <ErrorBoundary>
+      <div className="app-shell">
+        <Sidebar
+          activePage={activePage}
+          onNavigate={(page) => {
+            setPage(page);
+            if (page === "notifications") setUnread(0);
+          }}
+          session={session}
+          unreadCount={unreadCount}
+        />
+        <div className="app-content">
+          <ErrorBoundary>
+            <Suspense fallback={<ScreenFallback />}>
+              {renderPage(activePage, session, setSession)}
+            </Suspense>
+          </ErrorBoundary>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

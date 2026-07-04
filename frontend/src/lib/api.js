@@ -15,8 +15,10 @@
  */
 
 // ── Config ─────────────────────────────────────────────────────
-const BASE_URL    = "http://localhost:4000/api";
-const TIMEOUT_MS  = 6000;   // give the server 6 s before falling back
+// VITE_API_URL is set in .env.development / .env.production.
+// Falls back to localhost so the app still works without a .env file.
+const BASE_URL   = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
+const TIMEOUT_MS = 6000;   // give the server 6 s before falling back
 
 // localStorage keys (kept consistent with existing frontend code)
 const LS_MESSAGES  = "sable_messages";
