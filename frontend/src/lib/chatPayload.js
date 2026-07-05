@@ -17,6 +17,7 @@
  */
 
 import { buildMemoryContext } from "./memory.js";
+import { buildMemoryInfluenceContext } from "./companionEvolution.js";
 
 // ── Emotion detector ───────────────────────────────────────────
 const EMOTION_RULES = [
@@ -150,9 +151,12 @@ export function buildChatPayload({
   communicationStyle,
   messageHistory = [],
 }) {
-  const emotion       = detectEmotion(message);
-  const moodContext   = buildMoodContext();
-  const memoryContext = buildMemoryContext(); // up to 10 short summaries, no raw text
+  const emotion          = detectEmotion(message);
+  const moodContext      = buildMoodContext();
+  const memoryContext    = buildMemoryContext();
+  // Memory-influence phrases like "3 days ago: User has been worried about exams"
+  // These give the AI temporal recall without sending raw journal/chat text
+  const memoryInfluence  = buildMemoryInfluenceContext();
 
   // Last 10 turns, role+text only — no ids, timestamps, or metadata
   const recentContext = messageHistory
@@ -167,6 +171,7 @@ export function buildChatPayload({
     companionName:      companionName      || "Sable",
     moodContext,      // { currentMood, recentThemes } or null — labels only, no raw text
     memoryContext,    // string[] — up to 10 short companion-memory summaries
+    memoryInfluence,  // string[] — temporal phrases like "3 days ago: User worried about exams"
     recentContext,
   };
 }

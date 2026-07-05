@@ -66,6 +66,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    id: "companion",
+    label: "Bond",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1" strokeOpacity="0.4" strokeDasharray="2 2" />
+        <circle cx="10" cy="10" r="8.5" stroke="currentColor" strokeWidth="0.8" strokeOpacity="0.2" strokeDasharray="1.5 3" />
+      </svg>
+    ),
+  },
+  {
     id: "rituals",
     label: "Ritual",
     icon: (
@@ -131,6 +142,7 @@ const NavButton = memo(function NavButton({ item, isActive, onClick, badge }) {
 });
 
 const Sidebar = memo(function Sidebar({ activePage, onNavigate, session, unreadCount = 0 }) {
+  const isAuth   = session?.authenticated;
   const initials = (session?.displayName || session?.companionName || "?")
     .trim().charAt(0).toUpperCase();
 
@@ -151,9 +163,16 @@ const Sidebar = memo(function Sidebar({ activePage, onNavigate, session, unreadC
       </nav>
 
       <div className={s.bottom}>
-        <div className={s.userDot} title={session?.displayName || "You"} aria-hidden="true">
+        <button
+          className={`${s.userDot}${isAuth ? ` ${s.userDotAuth}` : ""}`}
+          title={isAuth ? `${session?.user?.name || "Account"} — signed in` : "Anonymous"}
+          onClick={() => onNavigate("profile")}
+          aria-label="Open profile"
+          aria-current={activePage === "profile" ? "page" : undefined}
+        >
           {initials}
-        </div>
+          {isAuth && <span className={s.authDot} aria-hidden="true" />}
+        </button>
       </div>
     </aside>
   );

@@ -25,13 +25,9 @@ const LS_MESSAGES  = "sable_messages";
 const LS_JOURNAL   = "sable_journal_entries";
 const LS_MOODS     = "sable_moods";
 
-// ── Auth header ────────────────────────────────────────────────
-// Every request carries the anon session id so the backend can
-// identify the session without receiving personal data.
-function getAnonHeader() {
-  const id = localStorage.getItem("sable_anon_id") || "";
-  return id ? { "x-anon-id": id } : {};
-}
+// getAnonHeader is replaced by getAuthHeaders() from authSession.js,
+// which sends both x-anon-id (when anonymous) and Authorization Bearer
+// (when authenticated). Both can travel together — the backend uses whichever applies.
 
 
 /**
@@ -57,7 +53,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
 async function post(path, body) {
   const res = await fetchWithTimeout(`${BASE_URL}${path}`, {
     method:  "POST",
-    headers: { "Content-Type": "application/json", ...getAnonHeader() },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body:    JSON.stringify(body),
   });
   if (!res.ok) {
@@ -72,7 +68,7 @@ async function post(path, body) {
  */
 async function get(path) {
   const res = await fetchWithTimeout(`${BASE_URL}${path}`, {
-    headers: { ...getAnonHeader() },
+    headers: { ...getAuthHeaders() },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
@@ -95,6 +91,8 @@ function lsSet(key, value) {
 // ── Source tag ──────────────────────────────────────────────────
 // Callers can inspect { source } to know where the data came from.
 const SRC = { BACKEND: "backend", LOCAL: "local" };
+
+import { getAuthHeaders } from "../auth/authSession";
 
 // ── Import payload builder ──────────────────────────────────────
 import { buildChatPayload } from "./chatPayload.js";
@@ -125,8 +123,9 @@ export async function sendMessage({ companionName, personality, communicationSty
     personality:        payload.personality,
     communicationStyle: payload.communicationStyle,
     companionName:      payload.companionName,
-    moodContext:        payload.moodContext,    // { currentMood, recentThemes } — labels only
-    memoryContext:      payload.memoryContext,  // string[] — up to 10 short memory summaries
+    moodContext:        payload.moodContext,
+    memoryContext:      payload.memoryContext,
+    memoryInfluence:    payload.memoryInfluence,  // temporal recall phrases
     recentContext:      payload.recentContext,
   };
 

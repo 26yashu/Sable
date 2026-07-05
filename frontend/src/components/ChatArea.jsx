@@ -10,6 +10,7 @@ import { sendMessage }       from "../lib/api";
 import { loadCompanionProfile } from "../lib/chatPayload";
 import { extractAndStoreMemories } from "../lib/memory";
 import { getCurrentStreaks } from "../lib/streaks";
+import { recomputeEvolution, checkAndUnlockMilestones } from "../lib/companionEvolution";
 
 const STORAGE_KEY = "sable_messages";
 const IDLE_DELAY  = 8000;
@@ -147,6 +148,16 @@ export default function ChatArea({ session }) {
     saveMessages(withReply);
     setIsTyping(false);
     setActivityFor("listening", true);
+
+    // ── 5. Recompute evolution levels and check milestones (read-only side-effect) ──
+    // Runs after every message exchange. Lightweight — all deterministic
+    // localStorage reads + bounded writes. Never blocks UI.
+    try {
+      recomputeEvolution();
+      checkAndUnlockMilestones();
+    } catch {
+      // Evolution is non-critical — never surface errors to the user
+    }
   }
 
   const isActive = activity === "listening" || activity === "thinking";

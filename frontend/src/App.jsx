@@ -1,25 +1,32 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { getAnonymousSession }  from "./auth/AnonymousSession";
+import { getAuthSession }       from "./auth/authSession";
 import { getUnreadCount }       from "./lib/notifications";
+import { syncAll }              from "./lib/cloudSync";
 import ErrorBoundary            from "./components/ErrorBoundary";
 
-// ── Eagerly loaded (critical path — always needed immediately) ──
+// ── Eagerly loaded (critical path) ───────────────────────────────
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ChatArea         from "./components/ChatArea";
 import Sidebar          from "./components/Sidebar";
 
-// ── Lazily loaded (non-critical — only fetched when navigated to) ──
+// ── Auth & Profile (small, always potentially needed) ─────────────
+import AuthScreen    from "./screens/AuthScreen";
+import ProfileScreen from "./screens/ProfileScreen";
+
+// ── Lazily loaded screens ─────────────────────────────────────────
 const JournalScreen       = lazy(() => import("./screens/JournalScreen"));
 const MoodScreen          = lazy(() => import("./screens/MoodScreen"));
 const InsightsScreen      = lazy(() => import("./screens/InsightsScreen"));
 const StoryScreen         = lazy(() => import("./screens/StoryScreen"));
 const MemoryScreen        = lazy(() => import("./screens/MemoryScreen"));
+const CompanionScreen     = lazy(() => import("./screens/CompanionScreen"));
 const RitualsScreen       = lazy(() => import("./screens/RitualsScreen"));
 const ComfortScreen       = lazy(() => import("./screens/ComfortScreen"));
 const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen"));
 const SettingsScreen      = lazy(() => import("./screens/SettingsScreen"));
 
-// ── Apply theme tokens to :root (called on boot + settings save) ──
+// ── Theme ─────────────────────────────────────────────────────────
 export function applyTheme(t) {
   const r = document.documentElement;
   if (t === "forest") {
@@ -47,7 +54,7 @@ export function applyTheme(t) {
   }
 }
 
-// ── Suspense fallback — uses existing skeleton CSS, no new classes ──
+// ── Suspense fallback ─────────────────────────────────────────────
 function ScreenFallback() {
   return (
     <div className="screen-suspense-fallback" aria-label="Loading" role="status">
@@ -56,7 +63,7 @@ function ScreenFallback() {
   );
 }
 
-function renderPage(page, session, onSessionUpdate) {
+function renderPage(page, session, onSessionUpdate, onLogout) {
   switch (page) {
     case "chat":          return <ChatArea session={session} />;
     case "journal":       return <JournalScreen />;
@@ -64,37 +71,115 @@ function renderPage(page, session, onSessionUpdate) {
     case "insights":      return <InsightsScreen />;
     case "story":         return <StoryScreen />;
     case "memory":        return <MemoryScreen />;
+    case "companion":     return <CompanionScreen session={session} />;
     case "rituals":       return <RitualsScreen />;
     case "comfort":       return <ComfortScreen />;
     case "notifications": return <NotificationsScreen />;
     case "settings":      return <SettingsScreen session={session} onSessionUpdate={onSessionUpdate} />;
+    case "profile":       return <ProfileScreen session={session} onLogout={onLogout} />;
     default:              return <ChatArea session={session} />;
   }
 }
 
 export default function App() {
-  const [session,     setSession] = useState(null);
-  const [ready,       setReady]   = useState(false);
-  const [activePage,  setPage]    = useState("chat");
-  const [unreadCount, setUnread]  = useState(0);
+  const [session,     setSession]   = useState(null);
+  const [ready,       setReady]     = useState(false);
+  const [activePage,  setPage]      = useState("chat");
+  const [unreadCount, setUnread]    = useState(0);
+  // authMode: "anon" | "auth" | null (null = not yet decided — show AuthScreen if no anon session)
+  const [authMode,    setAuthMode]  = useState(null);
 
   useEffect(() => {
-    const existing = getAnonymousSession();
-    if (existing) setSession(existing);
+    const anonSession = getAnonymousSession();
+    const authSession = getAuthSession();
+
     let savedTheme = "dark";
     try { savedTheme = localStorage.getItem("sable_theme") || "dark"; } catch {}
     applyTheme(savedTheme);
     try { setUnread(getUnreadCount()); } catch {}
+
+    if (authSession) {
+      // Authenticated user — build a session object compatible with the rest of the app
+      const user = authSession.user || {};
+      setSession({
+        id:            authSession.user?.id || "",
+        displayName:   user.name || localStorage.getItem("sable_display_name") || "",
+        companionName: localStorage.getItem("sable_companion_name") || "Sable",
+        authenticated: true,
+        user,
+      });
+      setAuthMode("auth");
+      // Background sync — non-blocking
+      syncAll().catch(() => {});
+    } else if (anonSession) {
+      setSession({ ...anonSession, authenticated: false });
+      setAuthMode("anon");
+    } else {
+      // No session at all — show auth choice
+      setAuthMode("choice");
+    }
     setReady(true);
   }, []);
 
   if (!ready) return null;
+
+  // ── Auth choice (no existing session) ──────────────────────────
+  if (authMode === "choice") {
+    return (
+      <ErrorBoundary>
+        <AuthScreen
+          onAuth={(user) => {
+            // Authenticated via signup/login — sync then enter app
+            const s = {
+              id:            user.id || "",
+              displayName:   user.name || "",
+              companionName: localStorage.getItem("sable_companion_name") || "Sable",
+              authenticated: true,
+              user,
+            };
+            setSession(s);
+            setAuthMode("auth");
+            syncAll().catch(() => {});
+          }}
+          onContinueAnonymous={() => {
+            // Route to the onboarding screen without disturbing existing anon flow
+            setAuthMode("onboarding");
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // ── Onboarding (user chose anonymous) ──────────────────────────
+  if (authMode === "onboarding") {
+    return (
+      <ErrorBoundary>
+        <OnboardingScreen
+          onComplete={(s) => {
+            setSession({ ...s, authenticated: false });
+            setAuthMode("anon");
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // ── Existing anonymous session already present ──────────────────
   if (!session) {
     return (
       <ErrorBoundary>
-        <OnboardingScreen onComplete={(s) => setSession(s)} />
+        <OnboardingScreen onComplete={(s) => {
+          setSession({ ...s, authenticated: false });
+          setAuthMode("anon");
+        }} />
       </ErrorBoundary>
     );
+  }
+
+  function handleLogout() {
+    setSession(null);
+    setAuthMode("choice");
+    setPage("chat");
   }
 
   return (
@@ -112,7 +197,7 @@ export default function App() {
         <div className="app-content">
           <ErrorBoundary>
             <Suspense fallback={<ScreenFallback />}>
-              {renderPage(activePage, session, setSession)}
+              {renderPage(activePage, session, setSession, handleLogout)}
             </Suspense>
           </ErrorBoundary>
         </div>
